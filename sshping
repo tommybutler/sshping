@@ -1,0 +1,58 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use IO::Socket::PortState qw( check_ports );
+use IO::Interactive qw( interactive is_interactive ); # avoid STDIN read hanging
+
+use vars qw( $save_stdin );
+
+# we need the help of IO::Interactive, but have to do a bit of a hack in order
+# to both support the capturing of @ARGV *AND* STDIN, such as when someone
+# wants to do something like this: cat hosts.txt | ./sshping host1 host2
+#    - the hack:
+BEGIN { open $save_stdin, '<&', *STDIN or die "Couldn't dup STDIN : $!\n" }
+
+my $timeout = 5; # seconds before giving up on an ssh port probe attempt
+my $usage   = "sshping host1 [ host2, host3 ...]\n";
+my @hosts   = @ARGV;
+my $tried   = 0;
+
+run() and die $usage unless $tried;
+
+exit;
+
+sub run
+{
+   unless ( is_interactive ) # read for any piped input, only if there was some
+   {
+      while ( my $host = <$save_stdin> ) { check_host( $host ) }
+
+      close $save_stdin;
+   }
+
+   for my $host ( @hosts ) { check_host( $host ) } # capture any arguments
+}
+
+sub check_host
+{
+   my $host = shift;
+
+   chomp $host;
+
+   return unless length $host; # don't check zero-length hostnames (STDIN)
+
+   my $checkme = { tcp => { 22 => { name => 'SSH' } } };
+
+   my $ping    = check_ports $host, $timeout, $checkme;
+
+   my $isalive = $ping->{ tcp }{ 22 }{ open } ? 'UP' : 'DOWN';
+
+   printf "%-20s %s\n", $host, $isalive;
+
+   $tried++;
+}
+
+__END__
+
